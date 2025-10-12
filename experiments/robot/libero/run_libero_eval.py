@@ -195,7 +195,7 @@ def check_unnorm_key(cfg: GenerateConfig, model) -> None:
 def setup_logging(cfg: GenerateConfig):
     """Set up logging to file and optionally to wandb."""
     # Create run ID
-    run_id = f"EVAL-{cfg.task_suite_name}-{cfg.model_family}-{DATE_TIME}"
+    run_id = f"EVAL_{cfg.task_suite_name}_{DATE_TIME}"
     if cfg.run_id_note is not None:
         run_id += f"--{cfg.run_id_note}"
 
@@ -300,9 +300,11 @@ def run_episode(
 
     # Initialize action queue
     if cfg.num_open_loop_steps != NUM_ACTIONS_CHUNK:
-        print(f"WARNING: cfg.num_open_loop_steps ({cfg.num_open_loop_steps}) does not match the NUM_ACTIONS_CHUNK "
-              f"({NUM_ACTIONS_CHUNK}) constant defined in prismatic.vla.constants! For best performance (in terms of "
-               "both speed and success rate), we recommend executing the full action chunk.")
+        print(
+            f"WARNING: cfg.num_open_loop_steps ({cfg.num_open_loop_steps}) does not match the NUM_ACTIONS_CHUNK "
+            f"({NUM_ACTIONS_CHUNK}) constant defined in prismatic.vla.constants! For best performance (in terms of "
+            "both speed and success rate), we recommend executing the full action chunk."
+        )
     action_queue = deque(maxlen=cfg.num_open_loop_steps)
 
     # Setup
@@ -430,9 +432,9 @@ def run_task(
             total_successes += 1
 
         # Save replay video
-        save_rollout_video(
-            replay_images, total_episodes, success=success, task_description=task_description, log_file=log_file
-        )
+        # save_rollout_video(
+        #     replay_images, total_episodes, success=success, task_description=task_description, log_file=log_file
+        # )
 
         # Log results
         log_message(f"Success: {success}", log_file)

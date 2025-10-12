@@ -172,8 +172,8 @@ def get_run_id(cfg) -> str:
         )
         if cfg.use_lora:
             run_id += f"+lora-r{cfg.lora_rank}+dropout-{cfg.lora_dropout}"
-        if cfg.image_aug:
-            run_id += "--image_aug"
+        # if cfg.image_aug:
+        #     run_id += "--image_aug"
         if cfg.run_id_note is not None:
             run_id += f"--{cfg.run_id_note}"
     return run_id
@@ -606,8 +606,11 @@ def save_training_checkpoint(
         checkpoint_dir = run_dir
         checkpoint_name_suffix = "latest_checkpoint.pt"
     else:
-        checkpoint_dir = Path(str(run_dir) + f"--{log_step}_chkpt")
+        checkpoint_dir = Path(str(run_dir) + f"/{log_step}_chkpt")
         checkpoint_name_suffix = f"{log_step}_checkpoint.pt"
+
+    if not checkpoint_dir.exists():
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
     adapter_dir = checkpoint_dir / "lora_adapter"
 
@@ -633,7 +636,8 @@ def save_training_checkpoint(
 
         if cfg.use_diffusion and noisy_action_projector is not None:
             torch.save(
-                noisy_action_projector.state_dict(), checkpoint_dir / f"noisy_action_projector--{checkpoint_name_suffix}"
+                noisy_action_projector.state_dict(),
+                checkpoint_dir / f"noisy_action_projector--{checkpoint_name_suffix}",
             )
 
         if (cfg.use_l1_regression or cfg.use_diffusion) and action_head is not None:
@@ -767,9 +771,9 @@ def finetune(cfg: FinetuneConfig) -> None:
         None.
     """
     assert cfg.use_lora, "Only LoRA fine-tuning is supported. Please set --use_lora=True!"
-    assert not (cfg.use_l1_regression and cfg.use_diffusion), (
-        "Cannot do both L1 regression and diffusion. Please pick one of them!"
-    )
+    assert not (
+        cfg.use_l1_regression and cfg.use_diffusion
+    ), "Cannot do both L1 regression and diffusion. Please pick one of them!"
 
     # Trim trailing forward slash ('/') in VLA path if it exists
     cfg.vla_path = cfg.vla_path.rstrip("/")
