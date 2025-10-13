@@ -19,9 +19,18 @@ from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 from prismatic.util.data_utils import tree_map
 from prismatic.vla.action_tokenizer import ActionTokenizer
-from prismatic.vla.constants import ACTION_DIM, ACTION_PROPRIO_NORMALIZATION_TYPE, ACTION_TOKEN_BEGIN_IDX, IGNORE_INDEX, NUM_ACTIONS_CHUNK, PROPRIO_DIM, STOP_INDEX
+from prismatic.vla.constants import (
+    ACTION_DIM,
+    ACTION_PROPRIO_NORMALIZATION_TYPE,
+    ACTION_TOKEN_BEGIN_IDX,
+    IGNORE_INDEX,
+    NUM_ACTIONS_CHUNK,
+    PROPRIO_DIM,
+    STOP_INDEX,
+)
 from prismatic.vla.datasets.rlds import make_interleaved_dataset, make_single_dataset
 from prismatic.vla.datasets.rlds.oxe import OXE_NAMED_MIXTURES, get_oxe_dataset_kwargs_and_weights
+
 
 @dataclass
 class RLDSBatchTransform:
@@ -45,10 +54,10 @@ class RLDSBatchTransform:
 
         # Get future action chunk
         future_actions = rlds_batch["action"][1:]
-        future_actions_string = ''.join(self.action_tokenizer(future_actions))
+        future_actions_string = "".join(self.action_tokenizer(future_actions))  # len=(chunk_size-1)*action_dim
 
         # Get action chunk string
-        current_action_string = self.action_tokenizer(current_action)
+        current_action_string = self.action_tokenizer(current_action)  # len=action_dim
         action_chunk_string = current_action_string + future_actions_string
         action_chunk_len = len(action_chunk_string)
 
@@ -73,7 +82,9 @@ class RLDSBatchTransform:
         if not self.predict_stop_token:
             labels[-1] = IGNORE_INDEX
 
-        return_dict = dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name, actions=actions)
+        return_dict = dict(
+            pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name, actions=actions
+        )
 
         # Add additional inputs
         if self.use_wrist_image:

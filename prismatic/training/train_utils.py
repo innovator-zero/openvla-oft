@@ -33,7 +33,7 @@ def get_next_actions_mask(token_ids):
     mask = cumsum > ACTION_DIM
 
     # Extract the action part only
-    action_tokens_only_mask = token_ids > ACTION_TOKEN_BEGIN_IDX
+    action_tokens_only_mask = token_ids > ACTION_TOKEN_BEGIN_IDX  # STOP_INDEX=2
     mask = action_tokens_only_mask * mask
 
     return mask

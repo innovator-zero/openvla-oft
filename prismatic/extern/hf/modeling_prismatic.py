@@ -413,7 +413,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         # Create batch indices for splicing
         batch_indices = torch.arange(input_embeddings.shape[0], device=input_embeddings.device)
-        batch_indices = batch_indices.unsqueeze(1).expand(-1, noisy_action_features.shape[1])
+        batch_indices = batch_indices.unsqueeze(1).expand(-1, noisy_action_features.shape[1])  # (B, K)
 
         # Get indices where mask is True for each sample
         masked_indices = torch.stack([torch.where(mask)[0] for mask in all_actions_mask])
@@ -441,7 +441,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
             # FiLM: Infuse language inputs into visual features
             patch_features = self.vision_backbone(pixel_values, language_embeddings)  # (bsz, 256 * num_images, D)
         else:
-            patch_features = self.vision_backbone(pixel_values)  # (bsz, 256 * num_images, D)
+            patch_features = self.vision_backbone(pixel_values)  # (bsz, 256 * num_images, D) D=1024+1152
 
         # Project patch embeddings into language embedding space
         return self.projector(patch_features)
@@ -474,6 +474,7 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
         multimodal_embeddings = torch.cat(
             [input_embeddings[:, :1, :], projected_patch_embeddings, input_embeddings[:, 1:, :]], dim=1
         )
+        # <BOS> <IMAGE> <LANG> <ACTION> <EOS>
 
         multimodal_attention_mask = None
         if attention_mask is not None:
@@ -818,6 +819,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
             )  # (B, llm_dim)
             diffusion_timestep_embeddings = diffusion_timestep_embeddings.unsqueeze(1)  # (B, 1, llm_dim)
 
+            # NOTE L595
             # [Diffusion] Replace the embeddings of the action tokens with noisy actions
             # (Later on, the positional embeddings will be added to them)
 
@@ -828,9 +830,9 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
 
             # Reshape and project noisy actions into language embedding space
             B = curr_noisy_actions.shape[0]
-            orig_curr_noisy_actions_shape = curr_noisy_actions.shape
-            curr_noisy_actions = curr_noisy_actions.reshape(B, -1).unsqueeze(-1)
-            noisy_action_features = noisy_action_projector(curr_noisy_actions)
+            orig_curr_noisy_actions_shape = curr_noisy_actions.shape  # (B, chunk_len, action_dim)
+            curr_noisy_actions = curr_noisy_actions.reshape(B, -1).unsqueeze(-1)  # (B, chunk_len * action_dim, 1)
+            noisy_action_features = noisy_action_projector(curr_noisy_actions)  # (B, chunk_len * action_dim, llm_dim)
             curr_noisy_actions = curr_noisy_actions.reshape(orig_curr_noisy_actions_shape)
 
             # Replace action token embeddings with noisy action embeddings
@@ -990,6 +992,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         # Update labels tensor for action mask computation later
         labels = self._prepare_labels_for_action_prediction(labels, input_ids)
 
+        # NOTE Prismatic forward start here
         # Get input embeddings and action masks
         input_embeddings = self.get_input_embeddings()(input_ids)
         all_actions_mask = self._process_action_masks(labels)
@@ -1005,7 +1008,9 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         # Add proprioceptive features if provided
         use_proprio = proprio_projector is not None and proprio is not None
         if use_proprio:
-            proprio = torch.Tensor(proprio).to(projected_patch_embeddings.device, dtype=projected_patch_embeddings.dtype)
+            proprio = torch.Tensor(proprio).to(
+                projected_patch_embeddings.device, dtype=projected_patch_embeddings.dtype
+            )
             projected_patch_embeddings = self._process_proprio_features(
                 projected_patch_embeddings, proprio, proprio_projector
             )

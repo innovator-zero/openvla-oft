@@ -160,10 +160,10 @@ def get_run_id(cfg) -> str:
         run_id = cfg.run_id_override
     elif cfg.resume:
         # Override run ID with the previous resumed run's ID
-        run_id = cfg.vla_path.split("/")[-1]
+        run_id = cfg.vla_path.split("/")[-2]
         # Remove the "--XXX_chkpt" suffix from the run ID if it exists
-        if "chkpt" in run_id.split("--")[-1]:
-            run_id = "--".join(run_id.split("--")[:-1])
+        # if "chkpt" in run_id.split("--")[-1]:
+        #     run_id = "--".join(run_id.split("--")[:-1])
     else:
         run_id = (
             f"{cfg.vla_path.split('/')[-1]}+{cfg.dataset_name}"
@@ -225,7 +225,7 @@ def count_parameters(module: nn.Module, name: str) -> None:
         None.
     """
     num_params = sum(p.numel() for p in module.parameters() if p.requires_grad)
-    print(f"# trainable params in {name}: {num_params}")
+    print(f"# trainable params in {name}: {num_params/1e6:.2f}M")
 
 
 def init_module(
@@ -375,6 +375,7 @@ def run_forward_pass(
         last_hidden_states = output.hidden_states[-1]  # (B, seq_len, D)
         # Get hidden states for text portion of prompt+response (after the vision patches)
         text_hidden_states = last_hidden_states[:, num_patches:-1]
+        # NTP: next token is predicted from the hidden states of previous tokens, so index-1
         # Get hidden states for action portion of response
         batch_size = batch["input_ids"].shape[0]
         actions_hidden_states = (
@@ -511,7 +512,9 @@ def run_diffusion_sampling(
                 noisy_action_projector=noisy_action_projector,
                 diffusion_timestep_embeddings=diffusion_timestep_embeddings,
                 use_film=use_film,
-            )
+            )  # NOTE repeatedly compute language and vision embedding
+
+            # NOTE L863 in modeling_prismatic.py
             # Get last layer hidden states
             last_hidden_states = output.hidden_states[-1]  # (B, seq_len, D)
             # Get hidden states for text portion of prompt+response (after the vision patches)
@@ -608,9 +611,6 @@ def save_training_checkpoint(
     else:
         checkpoint_dir = Path(str(run_dir) + f"/{log_step}_chkpt")
         checkpoint_name_suffix = f"{log_step}_checkpoint.pt"
-
-    if not checkpoint_dir.exists():
-        os.makedirs(checkpoint_dir, exist_ok=True)
 
     adapter_dir = checkpoint_dir / "lora_adapter"
 
@@ -935,7 +935,8 @@ def finetune(cfg: FinetuneConfig) -> None:
         trainable_params += [param for param in noisy_action_projector.parameters() if param.requires_grad]
     if cfg.use_proprio:
         trainable_params += [param for param in proprio_projector.parameters() if param.requires_grad]
-    print(f"# total trainable params: {sum(p.numel() for p in trainable_params)}")
+    total_params = sum(p.numel() for p in trainable_params)
+    print(f"# total trainable params: {total_params/1e6:.2f}M")
     optimizer = AdamW(trainable_params, lr=cfg.learning_rate)
 
     # Record original learning rate
