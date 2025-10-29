@@ -165,13 +165,15 @@ def get_run_id(cfg) -> str:
         # if "chkpt" in run_id.split("--")[-1]:
         #     run_id = "--".join(run_id.split("--")[:-1])
     else:
-        run_id = (
-            f"{cfg.vla_path.split('/')[-1]}+{cfg.dataset_name}"
-            f"+b{cfg.batch_size * cfg.grad_accumulation_steps}"
-            f"+lr-{cfg.learning_rate}"
-        )
-        if cfg.use_lora:
-            run_id += f"+lora-r{cfg.lora_rank}+dropout-{cfg.lora_dropout}"
+        # run_id = (
+        #     f"{cfg.vla_path.split('/')[-1]}+{cfg.dataset_name}"
+        #     f"+b{cfg.batch_size * cfg.grad_accumulation_steps}"
+        #     f"+lr-{cfg.learning_rate}"
+        # )
+        dataname = "_".join(cfg.dataset_name.split("_")[:-2])
+        run_id = f"{dataname}" f"+b{cfg.batch_size * cfg.grad_accumulation_steps}" f"+lr-{cfg.learning_rate}"
+        # if cfg.use_lora:
+        #     run_id += f"+lora-r{cfg.lora_rank}+dropout-{cfg.lora_dropout}"
         # if cfg.image_aug:
         #     run_id += "--image_aug"
         if cfg.run_id_note is not None:
@@ -794,7 +796,7 @@ def finetune(cfg: FinetuneConfig) -> None:
 
     # Initialize wandb logging
     if distributed_state.is_main_process:
-        wandb.init(entity=cfg.wandb_entity, project=cfg.wandb_project, name=f"ft+{run_id}")
+        wandb.init(entity=cfg.wandb_entity, project=cfg.wandb_project, name=run_id)
 
     # Print detected constants
     print(
