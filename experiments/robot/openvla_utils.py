@@ -220,9 +220,9 @@ def find_checkpoint_file(pretrained_checkpoint: str, file_pattern: str) -> str:
             full_path = os.path.join(pretrained_checkpoint, filename)
             checkpoint_files.append(full_path)
 
-    assert len(checkpoint_files) == 1, (
-        f"Expected exactly 1 {file_pattern} checkpoint but found {len(checkpoint_files)} in directory: {pretrained_checkpoint}"
-    )
+    assert (
+        len(checkpoint_files) == 1
+    ), f"Expected exactly 1 {file_pattern} checkpoint but found {len(checkpoint_files)} in directory: {pretrained_checkpoint}"
 
     return checkpoint_files[0]
 
@@ -333,7 +333,8 @@ def _apply_film_to_vla(vla: torch.nn.Module, cfg: Any) -> torch.nn.Module:
 
     # Create and apply FiLMed vision backbone
     new_vision_backbone = FiLMedPrismaticVisionBackbone(
-        vision_backbone=vla.vision_backbone, llm_dim=vla.llm_dim,
+        vision_backbone=vla.vision_backbone,
+        llm_dim=vla.llm_dim,
     )
     vla.model.vision_backbone = new_vision_backbone
 
@@ -482,7 +483,10 @@ def get_action_head(cfg: Any, llm_dim: int) -> Union[L1RegressionActionHead, Dif
         action_head = L1RegressionActionHead(input_dim=llm_dim, hidden_dim=llm_dim, action_dim=ACTION_DIM)
     elif cfg.use_diffusion:
         action_head = DiffusionActionHead(
-            input_dim=llm_dim, hidden_dim=llm_dim, action_dim=ACTION_DIM, num_diffusion_steps_train=cfg.num_diffusion_steps_train
+            input_dim=llm_dim,
+            hidden_dim=llm_dim,
+            action_dim=ACTION_DIM,
+            num_diffusion_steps_train=cfg.num_diffusion_steps_train,
         )
         # Set number of diffusion steps for inference
         action_head.noise_scheduler.set_timesteps(cfg.num_diffusion_steps_inference)

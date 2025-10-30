@@ -12,9 +12,6 @@ from typing import Any, Dict, Tuple, Type
 import numpy as np
 import torch
 from PIL import Image
-from torch.utils.data import Dataset, IterableDataset
-from transformers import PreTrainedTokenizerBase
-
 from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 from prismatic.util.data_utils import tree_map
@@ -30,6 +27,8 @@ from prismatic.vla.constants import (
 )
 from prismatic.vla.datasets.rlds import make_interleaved_dataset, make_single_dataset
 from prismatic.vla.datasets.rlds.oxe import OXE_NAMED_MIXTURES, get_oxe_dataset_kwargs_and_weights
+from torch.utils.data import Dataset, IterableDataset
+from transformers import PreTrainedTokenizerBase
 
 
 @dataclass

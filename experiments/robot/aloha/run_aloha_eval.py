@@ -80,9 +80,9 @@ class GenerateConfig:
 
 def validate_config(cfg: GenerateConfig) -> None:
     """Validate configuration parameters."""
-    assert cfg.use_vla_server, (
-        "Must use VLA server (server-client interface) to query model and get actions! Please set --use_vla_server=True"
-    )
+    assert (
+        cfg.use_vla_server
+    ), "Must use VLA server (server-client interface) to query model and get actions! Please set --use_vla_server=True"
 
 
 def setup_logging(cfg: GenerateConfig):
