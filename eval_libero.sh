@@ -1,0 +1,1 @@
+python experiments/robot/libero/run_libero_eval.py --pretrained_checkpoint experiments/checkpoints/libero_4_task_suites+b8+lr-0.0005--1017/300000_chkpt --task_suite_name libero_spatial
