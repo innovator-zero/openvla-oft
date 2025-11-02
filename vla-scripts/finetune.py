@@ -577,6 +577,7 @@ def save_training_checkpoint(
     action_head,
     train_dataset,
     distributed_state,
+    vlm_state_dict,
 ) -> None:
     """
     Save all training checkpoints including model components, LoRA adapter, and dataset statistics.
@@ -647,9 +648,15 @@ def save_training_checkpoint(
     # Merge LoRA weights into base model and save resulting model checkpoint
     # Note: Can be very slow on some devices; if so, we recommend merging offline
     if cfg.use_lora and cfg.merge_lora_during_training:
-        base_vla = AutoModelForVision2Seq.from_pretrained(
-            cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
-        )
+        if cfg.use_minivlm:
+            config = AutoConfig.from_pretrained(f"{cfg.vla_path}/config.json")
+            base_vla = AutoModelForVision2Seq.from_config(config, torch_dtype=torch.bfloat16)
+            # Load base VLM state dict
+            base_vla.load_state_dict(vlm_state_dict, strict=True)
+        else:
+            base_vla = AutoModelForVision2Seq.from_pretrained(
+                cfg.vla_path, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True, trust_remote_code=True
+            )
         merged_vla = PeftModel.from_pretrained(base_vla, adapter_dir)
         merged_vla = merged_vla.merge_and_unload()
 
@@ -819,9 +826,9 @@ def finetune(cfg: FinetuneConfig) -> None:
         AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
     # Update config.json and sync model files
-    # if distributed_state.is_main_process:
-    #     update_auto_map(cfg.vla_path)
-    #     check_model_logic_mismatch(cfg.vla_path)
+    if distributed_state.is_main_process:
+        # update_auto_map(cfg.vla_path)
+        check_model_logic_mismatch(cfg.vla_path)
 
     # Wait for model files to be synced
     dist.barrier()
@@ -858,9 +865,9 @@ def finetune(cfg: FinetuneConfig) -> None:
 
         # old_state_dict = vlm.state_dict()
         old_state_dict = load_vlm_state_dict(cfg.vlm_path)
-        RAW_STATE_DICT = rename_state_dict_keys(old_state_dict, replace_map)
+        new_state_dict = rename_state_dict_keys(old_state_dict, replace_map)
 
-        missing_keys, unexpected_keys = vla.load_state_dict(RAW_STATE_DICT, strict=True)
+        vla.load_state_dict(new_state_dict, strict=True)
         del old_state_dict
 
     else:
@@ -1145,6 +1152,7 @@ def finetune(cfg: FinetuneConfig) -> None:
                     action_head=action_head if (cfg.use_l1_regression or cfg.use_diffusion) else None,
                     train_dataset=train_dataset,
                     distributed_state=distributed_state,
+                    vlm_state_dict=new_state_dict if cfg.use_minivlm else None,
                 )
 
             # Test model on validation set
