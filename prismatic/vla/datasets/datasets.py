@@ -40,6 +40,7 @@ class RLDSBatchTransform:
     predict_stop_token: bool = True
     use_wrist_image: bool = False
     use_proprio: bool = False
+    use_minivlm: bool = False
 
     def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
         """Converts a RLDS batch to the format expected by the OpenVLA collator/models."""
@@ -53,22 +54,54 @@ class RLDSBatchTransform:
 
         # Get future action chunk
         future_actions = rlds_batch["action"][1:]
-        future_actions_string = "".join(self.action_tokenizer(future_actions))  # len=(chunk_size-1)*action_dim
 
-        # Get action chunk string
-        current_action_string = self.action_tokenizer(current_action)  # len=action_dim
-        action_chunk_string = current_action_string + future_actions_string
-        action_chunk_len = len(action_chunk_string)
+        if self.use_minivlm:
+            # NOTE directly get token ids instead of string
+            # future_actions_ids = self.action_tokenizer(future_actions, self.use_minivlm)
+            # current_action_ids = self.action_tokenizer(current_action, self.use_minivlm)
 
-        conversation = [
-            {"from": "human", "value": f"What action should the robot take to {lang}?"},
-            {"from": "gpt", "value": action_chunk_string},
-        ]
-        for turn in conversation:
-            prompt_builder.add_turn(turn["from"], turn["value"])
+            # action_chunk_ids = current_action_ids
+            # for fa in future_actions_ids:
+            #     action_chunk_ids += fa
+            # action_chunk_len = len(action_chunk_ids)  # chunk_size*action_dim
 
-        # Tokenize (w/ `base_tokenizer`)
-        input_ids = self.base_tokenizer(prompt_builder.get_prompt(), add_special_tokens=True).input_ids
+            action_chunk_len = NUM_ACTIONS_CHUNK * ACTION_DIM
+            action_chunk_ids = [151642] * action_chunk_len  # NOTE dummy ids
+
+            conversation = [
+                {"from": "human", "value": f"What action should the robot take to {lang}?"},
+                {"from": "gpt", "value": ""},
+            ]
+            for turn in conversation:
+                prompt_builder.add_turn(turn["from"], turn["value"])
+
+            # '<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nWhat action should the robot take to pick up the black bowl from table center and place it on the plate?<|im_end|>\n<|im_start|>assistant\n <|im_end|><|endoftext|>'
+            input_ids = self.base_tokenizer(prompt_builder.get_prompt(), add_special_tokens=True).input_ids
+
+            if len(input_ids) >= 3:
+                del input_ids[-3]  # remove " " 220
+                del input_ids[-2]  # remove <|im_end|> 151645
+                del input_ids[-1]  # remove <|endoftext|> 151643
+
+            input_ids = input_ids + action_chunk_ids + [151643]  # add <|endoftext|> at the end
+        else:
+            future_actions_string = "".join(self.action_tokenizer(future_actions))  # len=(chunk_size-1)*action_dim
+
+            # Get action chunk string
+            current_action_string = self.action_tokenizer(current_action)  # len=action_dim
+            action_chunk_string = current_action_string + future_actions_string
+            action_chunk_len = len(action_chunk_string)
+
+            conversation = [
+                {"from": "human", "value": f"What action should the robot take to {lang}?"},
+                {"from": "gpt", "value": action_chunk_string},
+            ]
+            for turn in conversation:
+                prompt_builder.add_turn(turn["from"], turn["value"])
+
+            # Tokenize (w/ `base_tokenizer`)
+            input_ids = self.base_tokenizer(prompt_builder.get_prompt(), add_special_tokens=True).input_ids
+
         labels = list(input_ids)
 
         # Tensorize =>> Run Image Transform to get `pixel_values` =>> Return

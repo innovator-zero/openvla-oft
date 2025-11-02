@@ -1,10 +1,11 @@
 """
 finetune.py
 
-Fine-tunes OpenVLA via LoRA.
+1Fine-tunes OpenVLA via LoRA.
 """
 
 import os
+import pdb
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -27,23 +28,15 @@ from transformers import AutoConfig, AutoImageProcessor, AutoModelForVision2Seq,
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 import wandb
-
-from experiments.robot.openvla_utils import (
-    check_model_logic_mismatch,
-    model_is_on_hf_hub,
-    update_auto_map,
-)
-
+from experiments.robot.openvla_utils import check_model_logic_mismatch, model_is_on_hf_hub, update_auto_map
 from prismatic.extern.hf.configuration_prismatic import OpenVLAConfig
 from prismatic.extern.hf.modeling_prismatic import OpenVLAForActionPrediction
 from prismatic.extern.hf.processing_prismatic import PrismaticImageProcessor, PrismaticProcessor
+from prismatic.models import load_vlm_state_dict
 from prismatic.models.action_heads import DiffusionActionHead, L1RegressionActionHead
-from prismatic.models.backbones.llm.prompting import PurePromptBuilder
+from prismatic.models.backbones.llm.prompting import PurePromptBuilder, QwenPromptBuilder
 from prismatic.models.film_vit_wrapper import FiLMedPrismaticVisionBackbone
-from prismatic.models.projectors import (
-    NoisyActionProjector,
-    ProprioProjector,
-)
+from prismatic.models.projectors import NoisyActionProjector, ProprioProjector
 from prismatic.training.train_utils import (
     compute_actions_l1_loss,
     compute_token_accuracy,
@@ -52,12 +45,7 @@ from prismatic.training.train_utils import (
 )
 from prismatic.util.data_utils import PaddedCollatorForActionPrediction
 from prismatic.vla.action_tokenizer import ActionTokenizer
-from prismatic.vla.constants import (
-    ACTION_DIM,
-    ACTION_PROPRIO_NORMALIZATION_TYPE,
-    NUM_ACTIONS_CHUNK,
-    PROPRIO_DIM,
-)
+from prismatic.vla.constants import ACTION_DIM, ACTION_PROPRIO_NORMALIZATION_TYPE, NUM_ACTIONS_CHUNK, PROPRIO_DIM
 from prismatic.vla.datasets import RLDSBatchTransform, RLDSDataset
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
@@ -69,6 +57,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 class FinetuneConfig:
     # fmt: off
     vla_path: str = "openvla/openvla-7b"             # Path to OpenVLA model (on HuggingFace Hub or stored locally)
+    vlm_path: str = None
+    use_minivlm: bool = False                        #
 
     # Dataset
     data_root_dir: Path = Path("datasets/rlds")      # Directory containing RLDS datasets
@@ -347,7 +337,7 @@ def run_forward_pass(
     next_actions_mask = get_next_actions_mask(ground_truth_token_ids)
 
     # Compute metrics for discrete action representation (next-token prediction)
-    if not (use_l1_regression or use_diffusion):
+    if not (use_l1_regression or use_diffusion):  # NOT used
         loss = output.loss
         predicted_token_ids = output.logits[:, num_patches:-1].argmax(dim=2)
         curr_action_accuracy = compute_token_accuracy(
@@ -816,7 +806,7 @@ def finetune(cfg: FinetuneConfig) -> None:
     # the `modeling_prismatic.py` file in this codebase; if so, we will copy
     # the file to the downloaded or locally stored checkpoint directory so
     # that the user's changes to the VLA class logic go into effect
-    if model_is_on_hf_hub(cfg.vla_path):
+    if model_is_on_hf_hub(cfg.vla_path):  # Not used for mini
         # Download model directly from Hugging Face Hub
         vla_download_path = snapshot_download(repo_id=cfg.vla_path)
         # Overwrite VLA path
@@ -829,21 +819,57 @@ def finetune(cfg: FinetuneConfig) -> None:
         AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
     # Update config.json and sync model files
-    if distributed_state.is_main_process:
-        update_auto_map(cfg.vla_path)
-        check_model_logic_mismatch(cfg.vla_path)
+    # if distributed_state.is_main_process:
+    #     update_auto_map(cfg.vla_path)
+    #     check_model_logic_mismatch(cfg.vla_path)
 
     # Wait for model files to be synced
     dist.barrier()
 
     # Load processor and VLA
     processor = AutoProcessor.from_pretrained(cfg.vla_path, trust_remote_code=True)
-    vla = AutoModelForVision2Seq.from_pretrained(
-        cfg.vla_path,
-        torch_dtype=torch.bfloat16,
-        low_cpu_mem_usage=True,
-        trust_remote_code=True,
-    ).to(device_id)
+
+    if cfg.use_minivlm:
+        config = AutoConfig.from_pretrained(f"{cfg.vla_path}/config.json")
+        vla = AutoModelForVision2Seq.from_config(config, torch_dtype=torch.bfloat16).to(
+            device_id
+        )  # Create a new model with configuration, the parameters are randomly initialized
+        # for name, param in model.named_parameters():
+        #     print(f"{name}: {param.shape}")
+        replace_map = [
+            ("vision_backbone.dino_featurizer", "vision_backbone.featurizer"),
+            ("vision_backbone.siglip_featurizer", "vision_backbone.fused_featurizer"),
+            ("llm_backbone.llm", "language_model"),
+            ("projector.projector.0", "projector.fc1"),
+            ("projector.projector.2", "projector.fc2"),
+            ("projector.projector.4", "projector.fc3"),
+            ("gamma", "scale_factor"),
+        ]
+
+        def rename_state_dict_keys(state_dict, replace_map):
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                new_k = k
+                for old, new in replace_map:
+                    if old in new_k:
+                        new_k = new_k.replace(old, new)
+                new_state_dict[new_k] = v
+            return new_state_dict
+
+        # old_state_dict = vlm.state_dict()
+        old_state_dict = load_vlm_state_dict(cfg.vlm_path)
+        RAW_STATE_DICT = rename_state_dict_keys(old_state_dict, replace_map)
+
+        missing_keys, unexpected_keys = vla.load_state_dict(RAW_STATE_DICT, strict=True)
+        del old_state_dict
+
+    else:
+        vla = AutoModelForVision2Seq.from_pretrained(
+            cfg.vla_path,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+            trust_remote_code=True,
+        ).to(device_id)
 
     # Set number of images in VLA input
     vla.vision_backbone.set_num_images_in_input(cfg.num_images_in_input)
@@ -978,9 +1004,10 @@ def finetune(cfg: FinetuneConfig) -> None:
         action_tokenizer,
         processor.tokenizer,
         image_transform=processor.image_processor.apply_transform,
-        prompt_builder_fn=PurePromptBuilder,
+        prompt_builder_fn=PurePromptBuilder if not cfg.use_minivlm else QwenPromptBuilder,
         use_wrist_image=use_wrist_image,
         use_proprio=cfg.use_proprio,
+        use_minivlm=cfg.use_minivlm,
     )
     train_dataset = RLDSDataset(
         cfg.data_root_dir,

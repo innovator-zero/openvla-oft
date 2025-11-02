@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 from typing import List, Optional, Union
+import torch
 
 from huggingface_hub import HfFileSystem, hf_hub_download
 
@@ -224,3 +225,39 @@ def load_vla(
     )
 
     return vla
+
+
+def load_vlm_state_dict(model_id_or_path: Union[str, Path]):
+    overwatch.info(f"Loading from local path `{(run_dir := Path(model_id_or_path))}`")
+
+    # Get paths for `config.json` and pretrained checkpoint
+    config_json, checkpoint_pt = (
+        run_dir / "config.json",
+        run_dir / "checkpoints" / "step-020792-epoch-01-loss=0.5268.pt",
+    )
+    assert config_json.exists(), f"Missing `config.json` for `{run_dir = }`"
+    assert checkpoint_pt.exists(), f"Missing checkpoint for `{run_dir = }`"
+
+    # Load Model Config from `config.json`
+    with open(config_json, "r") as f:
+        model_cfg = json.load(f)["model"]
+
+    vlm_state_dict = {}
+
+    # Load Vision Backbone
+    vision_backbone, image_transform = get_vision_backbone_and_transform(
+        model_cfg["vision_backbone_id"], model_cfg["image_resize_strategy"]
+    )
+
+    for k in vision_backbone.state_dict():
+        vlm_state_dict[f"vision_backbone.{k}"] = vision_backbone.state_dict()[k]
+
+    llm_state_dict = torch.load(checkpoint_pt, map_location="cpu")["model"]
+
+    for k in llm_state_dict["llm_backbone"]:
+        vlm_state_dict[f"llm_backbone.{k}"] = llm_state_dict["llm_backbone"][k]
+
+    for k in llm_state_dict["projector"]:
+        vlm_state_dict[f"projector.{k}"] = llm_state_dict["projector"][k]
+
+    return vlm_state_dict
