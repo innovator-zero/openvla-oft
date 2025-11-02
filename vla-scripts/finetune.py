@@ -826,9 +826,9 @@ def finetune(cfg: FinetuneConfig) -> None:
         AutoModelForVision2Seq.register(OpenVLAConfig, OpenVLAForActionPrediction)
 
     # Update config.json and sync model files
-    if distributed_state.is_main_process:
-        # update_auto_map(cfg.vla_path)
-        check_model_logic_mismatch(cfg.vla_path)
+    # if distributed_state.is_main_process:
+    #     update_auto_map(cfg.vla_path)
+    #     check_model_logic_mismatch(cfg.vla_path)
 
     # Wait for model files to be synced
     dist.barrier()
@@ -841,8 +841,6 @@ def finetune(cfg: FinetuneConfig) -> None:
         vla = AutoModelForVision2Seq.from_config(config, torch_dtype=torch.bfloat16).to(
             device_id
         )  # Create a new model with configuration, the parameters are randomly initialized
-        # for name, param in model.named_parameters():
-        #     print(f"{name}: {param.shape}")
         replace_map = [
             ("vision_backbone.dino_featurizer", "vision_backbone.featurizer"),
             ("vision_backbone.siglip_featurizer", "vision_backbone.fused_featurizer"),
@@ -863,7 +861,6 @@ def finetune(cfg: FinetuneConfig) -> None:
                 new_state_dict[new_k] = v
             return new_state_dict
 
-        # old_state_dict = vlm.state_dict()
         old_state_dict = load_vlm_state_dict(cfg.vlm_path)
         new_state_dict = rename_state_dict_keys(old_state_dict, replace_map)
 

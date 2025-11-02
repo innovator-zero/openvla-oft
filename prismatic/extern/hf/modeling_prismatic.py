@@ -32,6 +32,7 @@ from prismatic.vla.constants import (
     IGNORE_INDEX,
     NUM_ACTIONS_CHUNK,
     STOP_INDEX,
+    QWEN_EOS_INDEX,
     NormalizationType,
 )
 
@@ -668,12 +669,12 @@ class PrismaticForConditionalGeneration(PrismaticPreTrainedModel):
 
         return PrismaticCausalLMOutputWithPast(
             loss=language_model_output.loss,
-            logits=language_model_output.logits,
-            past_key_values=language_model_output.past_key_values,
-            hidden_states=language_model_output.hidden_states,
-            attentions=language_model_output.attentions,
-            projector_features=projected_patch_embeddings,
-        )
+            logits=language_model_output.logits,  # [B, seq_len, vocab_size]
+            past_key_values=language_model_output.past_key_values,  # [L, 2(K, V), B, num_heads, seq_len, head_dim]
+            hidden_states=language_model_output.hidden_states,  # [L+1, B, seq_len, hidden_size]
+            attentions=language_model_output.attentions,  # None
+            projector_features=projected_patch_embeddings,  # [B, NUM_PATCHES, hidden_size]
+        )  # only hidden_states used
 
     # === GenerationMixin Methods ===
     def prepare_inputs_for_generation(
@@ -732,7 +733,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         # Compute vocab size for de-tokenization -- revert added "multiple of"
         self.vocab_size = self.config.text_config.vocab_size - self.config.pad_to_multiple_of
 
-    def _prepare_input_for_action_prediction(self, input_ids, attention_mask):
+    def _prepare_input_for_action_prediction(self, input_ids, attention_mask, use_minivlm):
         """Prepares input for action prediction by adding necessary tokens"""
         # Add (ACTION_DIM * NUM_ACTIONS_CHUNK) placeholder tokens to input_ids to simulate action tokens
         placeholder_action_token_ids = (
@@ -741,7 +742,13 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         input_ids = torch.cat([input_ids, placeholder_action_token_ids], dim=-1)
 
         # Add stop token to sequence (needed in non-causal bi-directional self-attention, as it appears at train time)
-        stop_token_id = torch.ones((input_ids.shape[0], 1)).to(input_ids.device).to(input_ids.dtype) * STOP_INDEX
+        # Actually not used during inference, but added for consistency
+        if use_minivlm:
+            stop_token_id = (
+                torch.ones((input_ids.shape[0], 1)).to(input_ids.device).to(input_ids.dtype) * QWEN_EOS_INDEX
+            )
+        else:
+            stop_token_id = torch.ones((input_ids.shape[0], 1)).to(input_ids.device).to(input_ids.dtype) * STOP_INDEX
         input_ids = torch.cat([input_ids, stop_token_id], dim=-1)
 
         # Extend the attention mask to fit the new shape of input
@@ -952,6 +959,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         action_head=None,
         noisy_action_projector=None,
         use_film: bool = False,
+        use_minivlm: bool = False,
         **kwargs: str,
     ) -> np.ndarray:
         """Predict actions from input sequence, with options for different prediction methods.
@@ -971,10 +979,11 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         """
         # If the special empty token ('') does not already appear after the colon (':') token in the prompt
         # (after "OUT:" or "ASSISTANT:"), insert it to match the inputs seen at training time
-        if not torch.all(input_ids[:, -1] == 29871):
-            input_ids = torch.cat(
-                (input_ids, torch.unsqueeze(torch.Tensor([29871]).long(), dim=0).to(input_ids.device)), dim=1
-            )
+        if not use_minivlm:
+            if not torch.all(input_ids[:, -1] == 29871):
+                input_ids = torch.cat(
+                    (input_ids, torch.unsqueeze(torch.Tensor([29871]).long(), dim=0).to(input_ids.device)), dim=1
+                )
 
         pixel_values = kwargs["pixel_values"]
         attention_mask = kwargs["attention_mask"]
@@ -987,7 +996,7 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         NUM_PROMPT_TOKENS = input_ids.shape[-1] - 1  # Subtract action tokens and stop token
 
         # Prepare inputs by adding necessary tokens
-        input_ids, attention_mask = self._prepare_input_for_action_prediction(input_ids, attention_mask)
+        input_ids, attention_mask = self._prepare_input_for_action_prediction(input_ids, attention_mask, use_minivlm)
 
         # Update labels tensor for action mask computation later
         labels = self._prepare_labels_for_action_prediction(labels, input_ids)
@@ -1008,7 +1017,9 @@ class OpenVLAForActionPrediction(PrismaticForConditionalGeneration):
         # Add proprioceptive features if provided
         use_proprio = proprio_projector is not None and proprio is not None
         if use_proprio:
-            proprio = torch.Tensor(proprio).to(projected_patch_embeddings.device, dtype=projected_patch_embeddings.dtype)
+            proprio = torch.Tensor(proprio).to(
+                projected_patch_embeddings.device, dtype=projected_patch_embeddings.dtype
+            )
             projected_patch_embeddings = self._process_proprio_features(
                 projected_patch_embeddings, proprio, proprio_projector
             )

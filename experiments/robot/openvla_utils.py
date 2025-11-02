@@ -726,6 +726,7 @@ def get_vla_action(
     proprio_projector: Optional[torch.nn.Module] = None,
     noisy_action_projector: Optional[torch.nn.Module] = None,
     use_film: bool = False,
+    use_minivlm: bool = False,
 ) -> List[np.ndarray]:
     """
     Generate action predictions with the VLA policy.
@@ -758,7 +759,10 @@ def get_vla_action(
         primary_image = all_images.pop(0)
 
         # Build VLA prompt
-        prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
+        if not use_minivlm:
+            prompt = f"In: What action should the robot take to {task_label.lower()}?\nOut:"
+        else:
+            prompt = f"<|im_start|>system\nYou are Qwen, created by Alibaba Cloud. You are a helpful assistant.<|im_end|>\n<|im_start|>user\nWhat action should the robot take to {task_label.lower()}?<|im_end|>\n<|im_start|>assistant\n"
 
         # Process primary image
         inputs = processor(prompt, primary_image).to(DEVICE, dtype=torch.bfloat16)
@@ -796,6 +800,7 @@ def get_vla_action(
                 noisy_action_projector=noisy_action_projector,
                 action_head=action_head,
                 use_film=use_film,
+                use_minivlm=use_minivlm,
             )
 
     # Return action chunk as list of actions

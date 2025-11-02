@@ -87,8 +87,8 @@ class GenerateConfig:
     #################################################################################################################
     model_family: str = "openvla"                    # Model family
     pretrained_checkpoint: Union[str, Path] = ""     # Pretrained checkpoint path
-
     use_l1_regression: bool = True                   # If True, uses continuous action head with L1 regression objective
+    use_minivlm: bool = False                         # If True, uses minivlm
     use_diffusion: bool = False                      # If True, uses continuous action head with diffusion modeling objective (DDIM)
     num_diffusion_steps_train: int = 50              # (When `diffusion==True`) Number of diffusion steps used for training
     num_diffusion_steps_inference: int = 50          # (When `diffusion==True`) Number of diffusion steps used for inference
@@ -339,6 +339,7 @@ def run_episode(
                     proprio_projector=proprio_projector,
                     noisy_action_projector=noisy_action_projector,
                     use_film=cfg.use_film,
+                    use_minivlm=cfg.use_minivlm,
                 )
                 action_queue.extend(actions)
 
