@@ -23,7 +23,7 @@ torchrun --standalone --nnodes 1 --nproc-per-node $NPROC_PER_NODE vla-scripts/fi
   --use_proprio True \
   --batch_size 8 \
   --learning_rate 5e-4 \
-  --num_steps_before_decay 10000 \
+  --num_steps_before_decay 100000 \
   --max_steps 150000 \
   --save_freq 10000 \
   --save_latest_checkpoint_only False \

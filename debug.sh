@@ -15,14 +15,15 @@ torchrun --standalone --nnodes 1 --nproc-per-node 1 vla-scripts/finetune.py \
   --use_film False \
   --num_images_in_input 2 \
   --use_proprio True \
-  --batch_size 8 \
+  --batch_size 2 \
   --learning_rate 5e-4 \
   --num_steps_before_decay 100000 \
-  --max_steps 300000 \
-  --save_freq 20000 \
+  --max_steps 150000 \
+  --save_freq 100 \
   --save_latest_checkpoint_only False \
+  --merge_lora_during_training True \
   --image_aug True \
   --lora_rank 64 \
   --wandb_entity "innovator" \
   --wandb_project "openvla-oft" \
-  --run_id_note $(date +%m%d)
+  --run_id_note "mini-$(date +%m%d_%H%M)"
